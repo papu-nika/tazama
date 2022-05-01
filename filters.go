@@ -46,7 +46,7 @@ func (buf *File_buf) New_Grep_buf(high_scroll uint32, width_scroll int, search_s
 		if err != nil {
 			error_proccess(err)
 		}
-		is_match_index = search_func(((*buf)[(*index_buf)[index_key].index]))
+		is_match_index = search_func((*buf)[(*index_buf)[index_key].index])
 		if is_match_index == nil {
 			index_key++
 			continue
@@ -59,17 +59,28 @@ func (buf *File_buf) New_Grep_buf(high_scroll uint32, width_scroll int, search_s
 				continue
 			} else {
 				if print_line_nb == high_size {
-					(*new_index_buf)[4294967295] = Key{new_index_key, nil}
+					(*new_index_buf)[4294967295] = Key{
+						index: new_index_key,
+						uniq:  0,
+						match: nil,
+						cut:   nil,
+					}
 					buf.Drow_Termbox(high_scroll, width_scroll, search_strs, new_index_buf)
 				}
-				(*new_index_buf)[new_index_key] = Key{(*index_buf)[index_key].index, is_match_index}
+				(*new_index_buf)[new_index_key] = Key{
+					index: (*index_buf)[index_key].index,
+					uniq:  0,
+					match: is_match_index,
+					cut:   []int{0, len((*buf)[(*index_buf)[index_key].index])},
+				}
+
 				print_line_nb++
 				index_key++
 				new_index_key++
 			}
 		}
 	}
-	(*new_index_buf)[4294967295] = Key{new_index_key, nil}
+	(*new_index_buf)[4294967295] = Key{new_index_key, 0, nil, nil}
 	log.Printf("##New_Grep_buf##\t%d milisecond\t", time.Since(now).Milliseconds())
 }
 
@@ -77,10 +88,11 @@ func (buf *File_buf) New_Uniq_buf(high_scroll uint32, width_scroll int, search_s
 	now := time.Now()
 
 	var new_index_key uint32 = 0
-	var print_line_nb int = 1
-	var index_key uint32 = 1
-	var scroll_count uint32 = 0
-	_, high_size := termbox.Size()
+	//var print_line_nb int = 1
+	var index_key uint32 = 0
+	//var scroll_count uint32 = 0
+	var match_times uint32 = 1
+	//_, high_size := termbox.Size()
 	last_index_key := (*index_buf)[4294967295].index
 
 	is_uniq := func(before_str string, str string) bool {
@@ -91,29 +103,30 @@ func (buf *File_buf) New_Uniq_buf(high_scroll uint32, width_scroll int, search_s
 		}
 	}
 
+	log.Print((*buf)[(*index_buf)[index_key].index], " ", (*buf)[(*index_buf)[index_key+1].index], " ", (*buf)[(*index_buf)[index_key].index+2], " ", (*buf)[(*index_buf)[index_key].index+3], " ", (*buf)[(*index_buf)[index_key].index+4], " ", (*buf)[(*index_buf)[index_key].index+5], " ", (*buf)[(*index_buf)[index_key].index+6], " ", (*buf)[(*index_buf)[index_key].index+7], " ", (*buf)[(*index_buf)[index_key].index+8])
+
 	for index_key < last_index_key {
-		if is_uniq((*buf)[(*index_buf)[index_key].index-1], (*buf)[(*index_buf)[index_key].index]) {
-			if scroll_count < high_scroll {
-				scroll_count++
-				(*new_index_buf)[new_index_key] = (*index_buf)[index_key]
-				index_key++
-				new_index_key++
-				continue
-			} else {
-				if print_line_nb == high_size {
-					(*new_index_buf)[4294967295] = Key{new_index_key, nil}
-					buf.Drow_Termbox(high_scroll, width_scroll, search_strs, new_index_buf)
-				}
-				(*new_index_buf)[new_index_key] = Key{(*index_buf)[index_key].index, nil}
-				print_line_nb++
-				index_key++
-				new_index_key++
-			}
-		} else {
+		if is_uniq((*buf)[(*index_buf)[index_key].index], (*buf)[(*index_buf)[index_key+1].index]) {
+			match_times++
 			index_key++
+		} else {
+			(*new_index_buf)[new_index_key] = Key{
+				index: (*index_buf)[index_key].index,
+				uniq:  match_times,
+				match: nil,
+				cut:   []int{0, len((*buf)[(*index_buf)[index_key].index])},
+			}
+			new_index_key++
+			index_key++
+			match_times = 1
 		}
 	}
-	(*new_index_buf)[4294967295] = Key{new_index_key, nil}
+	(*new_index_buf)[4294967295] = Key{
+		index: new_index_key,
+		uniq:  0,
+		match: nil,
+		cut:   nil,
+	}
 	log.Printf("##New_Uniq_buf##\t%d milisecond\t", time.Since(now).Milliseconds())
 }
 

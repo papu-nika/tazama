@@ -10,5 +10,5 @@ $(NAME):
 	go build -o bin/
 
 clean:
-	rm $(NAME)
+	rm bin/$(NAME)
 
