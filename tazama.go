@@ -14,6 +14,8 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
+const version = "0.0.1"
+
 const coldef = termbox.ColorDefault
 
 type File_buf map[uint32]string
@@ -33,32 +35,51 @@ type Search_strs struct {
 	fg_color termbox.Attribute
 }
 
+type Options struct {
+	op_v bool
+}
+
 func main() {
 	var buf File_buf = map[uint32]string{}
 	var index_buf Index_buf = map[uint32]Key{}
 	var high_scroll uint32 = 0
 	var width_scroll int = 0
 	var search_strs []Search_strs = []Search_strs{{"", 0, 0}}
+	argc := len(os.Args)
+	if terminal.IsTerminal(0) && argc == 1 {
+		fmt.Println("ファイルを引数に指定するか、パイプで標準入力を与えてください")
+		return
+	}
+
+	option := Options{}
+	flag.BoolVar(&option.op_v, "v", false, "show version")
+	flag.BoolVar(&option.op_v, "version", false, "show version")
+	flag.Parse()
+	if option.op_v {
+		fmt.Println("version: ", version)
+		return
+	}
+
 	file := log_init()
 	defer file.Close()
-	flag.Parse()
-	argments := flag.Args()
-
 	if err := termbox.Init(); err != nil {
 		is_error(err)
 	}
 	defer termbox.Close()
 
-	argc := len(os.Args)
+	argments := flag.Args()
 	if argc > 1 {
-		(&buf).Read_File(argments[0], &index_buf)
-	} else if terminal.IsTerminal(0) && argc == 1 {
-		termbox.Close()
-		file.Close()
-		fmt.Println("ファイルを引数に指定するか、パイプで標準入力を与えてください")
-		return
+		if err := (&buf).Read_File(argments[0], &index_buf); err != nil {
+			termbox.Close()
+			fmt.Println(err)
+			return
+		}
 	} else {
-		(&buf).Read_File(os.Stdin.Name(), &index_buf)
+		if err := (&buf).Read_File(os.Stdin.Name(), &index_buf); err != nil {
+			termbox.Close()
+			fmt.Println(err)
+			return
+		}
 	}
 	(&buf).Chach_input(index_buf, &high_scroll, &width_scroll, &search_strs, "")
 }
@@ -155,14 +176,13 @@ func (buf *File_buf) Keyarrow_procces(high *uint32, width *int, ev termbox.Key, 
 	return
 }
 
-func (buf *File_buf) Read_File(file string, index_buf *Index_buf) {
+func (buf *File_buf) Read_File(file string, index_buf *Index_buf) error {
 	now := time.Now()
 	_, high_size := termbox.Size()
 	high := uint32(high_size)
 	f, err := os.Open(file)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 	defer f.Close()
 	read := bufio.NewScanner(f)
@@ -190,6 +210,7 @@ func (buf *File_buf) Read_File(file string, index_buf *Index_buf) {
 	}
 	(*index_buf)[4294967295] = Key{i, 0, nil, nil}
 	log.Printf("##Read_File##\t%d milisecond\tkey= \"%s\"", time.Since(now).Milliseconds(), "")
+	return nil
 }
 
 func (buf *File_buf) Re_Create_buf(high_scroll uint32, width_scroll int, search_strs *[]Search_strs, index_buf *Index_buf) *Index_buf {
