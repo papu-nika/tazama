@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nsf/termbox-go"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 const coldef = termbox.ColorDefault
@@ -38,7 +39,6 @@ func main() {
 	var high_scroll uint32 = 0
 	var width_scroll int = 0
 	var search_strs []Search_strs = []Search_strs{{"", 0, 0}}
-
 	file := log_init()
 	defer file.Close()
 	flag.Parse()
@@ -48,7 +48,18 @@ func main() {
 		is_error(err)
 	}
 	defer termbox.Close()
-	(&buf).Read_File(argments[0], &index_buf)
+
+	argc := len(os.Args)
+	if argc > 1 {
+		(&buf).Read_File(argments[0], &index_buf)
+	} else if terminal.IsTerminal(0) && argc == 1 {
+		termbox.Close()
+		file.Close()
+		fmt.Println("ファイルを引数に指定するか、パイプで標準入力を与えてください")
+		return
+	} else {
+		(&buf).Read_File(os.Stdin.Name(), &index_buf)
+	}
 	(&buf).Chach_input(index_buf, &high_scroll, &width_scroll, &search_strs, "")
 }
 
