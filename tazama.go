@@ -1,3 +1,4 @@
+// 日本語って行けたっけ？
 package main
 
 import (
@@ -6,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/nsf/termbox-go"
@@ -47,13 +49,13 @@ func main() {
 	}
 	defer termbox.Close()
 	(&buf).Read_File(argments[0], &index_buf)
-	(&buf).Chach_input(index_buf, &high_scroll, &width_scroll, &search_strs)
+	(&buf).Chach_input(index_buf, &high_scroll, &width_scroll, &search_strs, "")
 }
 
-func (buf *File_buf) Chach_input(index_buf Index_buf, high_scroll *uint32, width_scroll *int, search_strs *[]Search_strs) {
+func (buf *File_buf) Chach_input(index_buf Index_buf, high_scroll *uint32, width_scroll *int, search_strs *[]Search_strs, error_message string) {
 MAINLOOP:
 	for {
-		buf.Drow_Termbox(*high_scroll, *width_scroll, search_strs, &index_buf)
+		buf.Drow_Termbox(*high_scroll, *width_scroll, search_strs, &index_buf, error_message)
 	BUFFER_RELATED_WITHOUT:
 		for {
 			ev := termbox.PollEvent()
@@ -83,16 +85,19 @@ MAINLOOP:
 						(*search_strs)[0].str += " "
 						continue MAINLOOP
 					}
+					if error_message = is_ok_regex((*search_strs)[0].str); error_message != "" {
+						continue MAINLOOP
+					}
 					*search_strs = append([]Search_strs{{"", 0, 0}}, (*search_strs)...)
 
 					new_index_buf := *buf.Re_Create_buf(*high_scroll, *width_scroll, search_strs, &index_buf)
 
-					buf.Chach_input(new_index_buf, high_scroll, width_scroll, search_strs)
+					buf.Chach_input(new_index_buf, high_scroll, width_scroll, search_strs, error_message)
 					continue MAINLOOP
 				default:
 					if ev.Ch == 92 {
 						(*search_strs)[0].str += "\\"
-						buf.Drow_Termbox(*high_scroll, *width_scroll, search_strs, &index_buf)
+						buf.Drow_Termbox(*high_scroll, *width_scroll, search_strs, &index_buf, "")
 						continue BUFFER_RELATED_WITHOUT
 					} else {
 						(*search_strs)[0].str += string(ev.Ch)
@@ -105,27 +110,36 @@ MAINLOOP:
 	}
 }
 
+func is_ok_regex(str string) string {
+	_, err := regexp.CompilePOSIX(str)
+	if err != nil {
+		return "不正な正規表現です"
+	} else {
+		return ""
+	}
+}
+
 func (buf *File_buf) Keyarrow_procces(high *uint32, width *int, ev termbox.Key, index_buf *Index_buf, search_strs *[]Search_strs) {
 	switch ev {
 	case termbox.KeyArrowDown:
 		*high++
-		buf.Drow_Termbox(*high, *width, search_strs, index_buf)
+		buf.Drow_Termbox(*high, *width, search_strs, index_buf, "")
 	case termbox.KeyArrowUp:
 		if *high == 0 {
 			return
 		} else {
 			*high--
-			buf.Drow_Termbox(*high, *width, search_strs, index_buf)
+			buf.Drow_Termbox(*high, *width, search_strs, index_buf, "")
 		}
 	case termbox.KeyArrowRight:
 		*width++
-		buf.Drow_Termbox(*high, *width, search_strs, index_buf)
+		buf.Drow_Termbox(*high, *width, search_strs, index_buf, "")
 	case termbox.KeyArrowLeft:
 		if *width == 0 {
 			return
 		}
 		*width--
-		buf.Drow_Termbox(*high, *width, search_strs, index_buf)
+		buf.Drow_Termbox(*high, *width, search_strs, index_buf, "")
 	}
 	return
 }
@@ -160,7 +174,7 @@ func (buf *File_buf) Read_File(file string, index_buf *Index_buf) {
 				cut:   nil,
 			}
 			empty_slice := []Search_strs{{"", 0, 0}}
-			buf.Drow_Termbox(0, 0, &empty_slice, index_buf)
+			buf.Drow_Termbox(0, 0, &empty_slice, index_buf, "")
 		}
 	}
 	(*index_buf)[4294967295] = Key{i, 0, nil, nil}

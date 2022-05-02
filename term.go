@@ -11,7 +11,7 @@ import (
 	"github.com/nsf/termbox-go"
 )
 
-func (buf *File_buf) Drow_Termbox(high_scroll uint32, width_scroll int, search_strs *[]Search_strs, index_buf *Index_buf) {
+func (buf *File_buf) Drow_Termbox(high_scroll uint32, width_scroll int, search_strs *[]Search_strs, index_buf *Index_buf, error_message string) {
 	now := time.Now()
 	termbox.Clear(coldef, coldef)
 	width_size, high_size := termbox.Size()
@@ -31,7 +31,7 @@ func (buf *File_buf) Drow_Termbox(high_scroll uint32, width_scroll int, search_s
 	}
 	last_index_key := tmp.index
 
-	for print_line_nb < high_size {
+	for print_line_nb < high_size-1 {
 		if index_key == last_index_key {
 			break
 		}
@@ -66,6 +66,9 @@ func (buf *File_buf) Drow_Termbox(high_scroll uint32, width_scroll int, search_s
 			index_key++
 		}
 	}
+	if error_message != "" {
+		index_buf.Tbprint(0, 0, print_line_nb, error_message, 0)
+	}
 	termbox.Flush()
 	log.Printf("##Drow_Termbox##\t%d milisecond\tkey= \"%s\"", time.Since(now).Milliseconds(), sum_search_strs)
 }
@@ -75,6 +78,8 @@ func (index_buf *Index_buf) Tbprint(width, x, y int, str string, index_key uint3
 	print_renge := (*index_buf)[index_key].cut
 	ch_color := coldef
 	bg_color := coldef
+	str_rune := []rune(str)
+	print_renge[1] = len(str_rune)
 
 	for i := print_renge[0]; i < print_renge[1]; i++ {
 		if i < width {
@@ -82,7 +87,7 @@ func (index_buf *Index_buf) Tbprint(width, x, y int, str string, index_key uint3
 		}
 		if color_lenge == nil {
 		} else if color_lenge[0] <= i && i < color_lenge[1] {
-			if str[i] == ' ' || str[i] == '\t' {
+			if str_rune[i] == ' ' || str_rune[i] == '\t' {
 				bg_color = termbox.ColorLightBlue
 				ch_color = coldef
 			} else {
@@ -93,7 +98,7 @@ func (index_buf *Index_buf) Tbprint(width, x, y int, str string, index_key uint3
 			ch_color = coldef
 			bg_color = coldef
 		}
-		if str[i] == '\t' {
+		if str_rune[i] == '\t' {
 			termbox.SetCell(x, y, ' ', ch_color, bg_color)
 			x++
 			termbox.SetCell(x, y, ' ', ch_color, bg_color)
@@ -103,8 +108,8 @@ func (index_buf *Index_buf) Tbprint(width, x, y int, str string, index_key uint3
 			termbox.SetCell(x, y, ' ', ch_color, bg_color)
 			x++
 		} else {
-			termbox.SetCell(x, y, rune(str[i]), ch_color, bg_color)
-			x += runewidth.RuneWidth(rune(str[i]))
+			termbox.SetCell(x, y, rune(str_rune[i]), ch_color, bg_color)
+			x += runewidth.RuneWidth(rune(str_rune[i]))
 		}
 	}
 	if y == 0 {
@@ -151,4 +156,31 @@ func prompt_print(width, y int, str string) {
 	if y == 0 {
 		termbox.SetCell(x, y, ' ', ch_color, termbox.ColorWhite)
 	}
+}
+
+func error_print(str string) {
+	x := 0
+	ch_color := coldef
+	bg_color := coldef
+	_, y := termbox.Size()
+	y--
+	for i := 0; i < len(str); i++ {
+		if str[i] == '\t' {
+			termbox.SetCell(x, y, ' ', ch_color, bg_color)
+			x++
+			termbox.SetCell(x, y, ' ', ch_color, bg_color)
+			x++
+			termbox.SetCell(x, y, ' ', ch_color, bg_color)
+			x++
+			termbox.SetCell(x, y, ' ', ch_color, bg_color)
+			x++
+		} else {
+			termbox.SetCell(x, y, rune(str[i]), ch_color, bg_color)
+			x += runewidth.RuneWidth(rune(str[i]))
+		}
+	}
+	if y == 0 {
+		termbox.SetCell(x, y, ' ', ch_color, termbox.ColorWhite)
+	}
+	termbox.Flush()
 }

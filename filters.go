@@ -65,7 +65,7 @@ func (buf *File_buf) New_Grep_buf(high_scroll uint32, width_scroll int, search_s
 						match: nil,
 						cut:   nil,
 					}
-					buf.Drow_Termbox(high_scroll, width_scroll, search_strs, new_index_buf)
+					buf.Drow_Termbox(high_scroll, width_scroll, search_strs, new_index_buf, "")
 				}
 				(*new_index_buf)[new_index_key] = Key{
 					index: (*index_buf)[index_key].index,
