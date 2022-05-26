@@ -1,4 +1,3 @@
-// 日本語って行けたっけ？
 package main
 
 import (
@@ -16,80 +15,65 @@ import (
 
 const version = "0.0.1"
 
-const coldef = termbox.ColorDefault
+const (
+	default_color = termbox.ColorDefault
+	warning_color = termbox.ColorRed
+	match_color   = termbox.ColorBlue
+)
 
-type File_buf map[uint32]string
+// int=行数,string=文字列
+type FileBuf map[int]string
 
-type Key struct {
-	index uint32
-	uniq  uint32
-	match []int
-	cut   []int
+// int=マッチした行,Keys=属性
+type IndexBuf map[int]Keys
+
+type Keys struct {
+	index      int
+	uniq_num   int
+	grep_range []int
+	cut_range  []int
 }
 
-type Index_buf map[uint32]Key
+type Scroll struct {
+	high  int
+	width int
+}
 
-type Search_strs struct {
-	str      string
-	bg_color termbox.Attribute
-	fg_color termbox.Attribute
+type SearchStr []struct {
+	str string
 }
 
 type Options struct {
 	op_v bool
 }
 
+var file_buf FileBuf = map[int]string{}
+var scroll Scroll = Scroll{0, 0}
+var search_strs SearchStr = SearchStr{{}}
+
 func main() {
-	var buf File_buf = map[uint32]string{}
-	var index_buf Index_buf = map[uint32]Key{}
-	var high_scroll uint32 = 0
-	var width_scroll int = 0
-	var search_strs []Search_strs = []Search_strs{{"", 0, 0}}
-	argc := len(os.Args)
-	if terminal.IsTerminal(0) && argc == 1 {
-		fmt.Println("ファイルを引数に指定するか、パイプで標準入力を与えてください")
-		return
-	}
-
-	option := Options{}
-	flag.BoolVar(&option.op_v, "v", false, "show version")
-	flag.BoolVar(&option.op_v, "version", false, "show version")
-	flag.Parse()
-	if option.op_v {
-		fmt.Println("version: ", version)
-		return
-	}
-
-	file := log_init()
-	defer file.Close()
+	log_file := log_init()
+	defer log_file.Close()
+	file := args_process()
 	if err := termbox.Init(); err != nil {
 		is_error(err)
 	}
 	defer termbox.Close()
+	index_buf := read_file(file)
+	file.Close()
 
-	argments := flag.Args()
-	if argc > 1 {
-		if err := (&buf).Read_File(argments[0], &index_buf); err != nil {
-			termbox.Close()
-			fmt.Println(err)
-			return
-		}
-	} else {
-		if err := (&buf).Read_File(os.Stdin.Name(), &index_buf); err != nil {
-			termbox.Close()
-			fmt.Println(err)
-			return
-		}
-	}
-	(&buf).Chach_input(index_buf, &high_scroll, &width_scroll, &search_strs, "")
+	index_buf.Chach_input()
 }
 
-func (buf *File_buf) Chach_input(index_buf Index_buf, high_scroll *uint32, width_scroll *int, search_strs *[]Search_strs, error_message string) {
+func (index_buf *IndexBuf) Chach_input() {
 MAINLOOP:
 	for {
-		buf.Drow_Termbox(*high_scroll, *width_scroll, search_strs, &index_buf, error_message)
+		index_buf.Draw_Termbox()
+		search_strs.PromptPrint()
+		termbox.Flush()
 	BUFFER_RELATED_WITHOUT:
 		for {
+			termbox.Flush()
 			ev := termbox.PollEvent()
 			switch ev.Type {
 			case termbox.EventKey:
@@ -98,48 +82,70 @@ MAINLOOP:
 					termbox.Close()
 					os.Exit(0)
 				case termbox.KeyArrowRight, termbox.KeyArrowLeft, termbox.KeyArrowUp, termbox.KeyArrowDown:
-					buf.Keyarrow_procces(high_scroll, width_scroll, ev.Key, &index_buf, search_strs)
+					key_arrow_procces(ev.Key)
+					index_buf.Draw_Termbox()
+					search_strs.PromptPrint()
 					continue BUFFER_RELATED_WITHOUT
 				case termbox.KeyBackspace2:
-					if len(*search_strs) == 1 && (*search_strs)[0].str == "" {
+					if len(search_strs) == 1 && search_strs[0].str == "" {
 						continue BUFFER_RELATED_WITHOUT
-					} else if (*search_strs)[0].str == "" {
-						*search_strs = (*search_strs)[1:]
+					} else if search_strs[0].str == "" {
+						search_strs = (search_strs)[1:]
 						return
 					} else {
-						(*search_strs)[0].str = (*search_strs)[0].str[:len((*search_strs)[0].str)-1]
+						(search_strs)[0].str = search_strs[0].str[:len(search_strs[0].str)-1]
 						continue MAINLOOP
 					}
 				case termbox.KeySpace:
-					if (*search_strs)[0].str == "" {
-						continue MAINLOOP
-					} else if (*search_strs)[0].str[len((*search_strs)[0].str)-1] == '\\' {
-						(*search_strs)[0].str += " "
-						continue MAINLOOP
+					if search_strs[0].str == "" {
+						continue BUFFER_RELATED_WITHOUT
+					} else if search_strs[0].str[len(search_strs[0].str)-1] == '\\' {
+						search_strs[0].str += " "
+						continue BUFFER_RELATED_WITHOUT
 					}
-					if error_message = is_ok_regex((*search_strs)[0].str); error_message != "" {
-						continue MAINLOOP
+					if error_message := is_ok_regex(search_strs[0].str); error_message != "" {
+						error_print(error_message)
+						continue BUFFER_RELATED_WITHOUT
 					}
-					*search_strs = append([]Search_strs{{"", 0, 0}}, (*search_strs)...)
-
-					new_index_buf := *buf.Re_Create_buf(*high_scroll, *width_scroll, search_strs, &index_buf)
-
-					buf.Chach_input(new_index_buf, high_scroll, width_scroll, search_strs, error_message)
+					search_strs = append(SearchStr{{""}}, search_strs...)
+					new_index_buf := index_buf.Re_Create_buf()
+					new_index_buf.Chach_input()
 					continue MAINLOOP
 				default:
 					if ev.Ch == 92 {
-						(*search_strs)[0].str += "\\"
-						buf.Drow_Termbox(*high_scroll, *width_scroll, search_strs, &index_buf, "")
+						search_strs[0].str += "\\"
 						continue BUFFER_RELATED_WITHOUT
 					} else {
-						(*search_strs)[0].str += string(ev.Ch)
+						search_strs[0].str += string(ev.Ch)
 					}
-					//buf.Chach_input(*buf.Re_Create_buf(*high_scroll, *width_scroll, search_strs, &index_buf), high_scroll, width_scroll, search_strs)
-					continue MAINLOOP
+					search_strs.PromptPrint()
+					continue BUFFER_RELATED_WITHOUT
 				}
 			}
 		}
 	}
+}
+
+func (index_buf *IndexBuf) Re_Create_buf() *IndexBuf {
+	re_now := time.Now()
+	var new_index_buf IndexBuf = IndexBuf{}
+
+	if search_strs[1].str == "sort" {
+		index_buf.New_Srot_buf(&new_index_buf)
+
+	} else if search_strs[1].str == "uniq" || search_strs[1].str == "uniq-c" {
+		index_buf.New_Uniq_buf(&new_index_buf)
+	} else if search_strs[1].str == "cut" {
+		index_buf.New_Cut_buf(&new_index_buf, 3)
+	} else {
+		index_buf.New_Grep_buf(&new_index_buf)
+	}
+	log.Printf("##Re_Create_buf##\t%d milisecond\tkey= \"%s\"", time.Since(re_now).Milliseconds(), search_strs[1].str)
+	//log.Printf("%p, new=%p", index_buf, &new_index_buf)
+	// for key, value := range new_index_buf {
+	// 	log.Printf("key %d = value %d", key, value.cut_range)
+	// }
+	return &new_index_buf
 }
 
 func is_ok_regex(str string) string {
@@ -151,86 +157,98 @@ func is_ok_regex(str string) string {
 	}
 }
 
-func (buf *File_buf) Keyarrow_procces(high *uint32, width *int, ev termbox.Key, index_buf *Index_buf, search_strs *[]Search_strs) {
+func key_arrow_procces(ev termbox.Key) {
 	switch ev {
 	case termbox.KeyArrowDown:
-		*high++
-		buf.Drow_Termbox(*high, *width, search_strs, index_buf, "")
+		scroll.high++
 	case termbox.KeyArrowUp:
-		if *high == 0 {
+		if scroll.high == 0 {
 			return
 		} else {
-			*high--
-			buf.Drow_Termbox(*high, *width, search_strs, index_buf, "")
+			scroll.high--
 		}
 	case termbox.KeyArrowRight:
-		*width++
-		buf.Drow_Termbox(*high, *width, search_strs, index_buf, "")
+		scroll.width++
 	case termbox.KeyArrowLeft:
-		if *width == 0 {
+		if scroll.width == 0 {
 			return
 		}
-		*width--
-		buf.Drow_Termbox(*high, *width, search_strs, index_buf, "")
+		scroll.width--
 	}
 	return
 }
 
-func (buf *File_buf) Read_File(file string, index_buf *Index_buf) error {
-	now := time.Now()
-	_, high_size := termbox.Size()
-	high := uint32(high_size)
-	f, err := os.Open(file)
-	if err != nil {
-		return err
+func args_process() *os.File {
+	if terminal.IsTerminal(0) && len(os.Args) == 1 {
+		fmt.Println("ファイルを引数に指定するか、パイプで標準入力を与えてください")
+		os.Exit(1)
 	}
-	defer f.Close()
-	read := bufio.NewScanner(f)
-
-	var i uint32 = 0
-	for ; read.Scan(); i++ {
-		(*buf)[i] = read.Text()
-
-		(*index_buf)[i] = Key{
-			index: i,
-			uniq:  0,
-			match: nil,
-			cut:   []int{0, len((*buf)[i])},
-		}
-		if i == high {
-			(*index_buf)[4294967295] = Key{
-				index: i,
-				uniq:  0,
-				match: nil,
-				cut:   nil,
-			}
-			empty_slice := []Search_strs{{"", 0, 0}}
-			buf.Drow_Termbox(0, 0, &empty_slice, index_buf, "")
-		}
+	option := Options{}
+	flag.BoolVar(&option.op_v, "v", false, "show version")
+	flag.BoolVar(&option.op_v, "version", false, "show version")
+	flag.Parse()
+	if option.op_v {
+		fmt.Println("version: ", version)
+		os.Exit(0)
 	}
-	(*index_buf)[4294967295] = Key{i, 0, nil, nil}
-	log.Printf("##Read_File##\t%d milisecond\tkey= \"%s\"", time.Since(now).Milliseconds(), "")
-	return nil
+	argments := flag.Args()
+	if len(os.Args) > 1 {
+		f, err := os.Open(argments[0])
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		return f
+	} else {
+		f, err := os.Open(os.Stdin.Name())
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		return f
+	}
 }
 
-func (buf *File_buf) Re_Create_buf(high_scroll uint32, width_scroll int, search_strs *[]Search_strs, index_buf *Index_buf) *Index_buf {
-	re_now := time.Now()
-	var new_index_buf Index_buf = Index_buf{}
+func read_file(f *os.File) *IndexBuf {
+	now := time.Now()
+	var index_buf IndexBuf = map[int]Keys{}
 
-	if (*search_strs)[1].str == "sort" {
-		for key, value := range *index_buf {
-			new_index_buf[key] = value
+	_, high_size := termbox.Size()
+
+	read := bufio.NewScanner(f)
+	var i int
+	for i = 1; read.Scan(); i++ {
+		file_buf[i] = read.Text()
+
+		index_buf[i] = Keys{
+			index:      i,
+			uniq_num:   0,
+			grep_range: nil,
+			cut_range:  []int{0, len([]rune(file_buf[i]))},
 		}
-		buf.New_Srot_buf(&new_index_buf)
-
-	} else if (*search_strs)[1].str == "uniq" || (*search_strs)[1].str == "uniq-c" {
-		buf.New_Uniq_buf(high_scroll, width_scroll, search_strs, index_buf, &new_index_buf)
-	} else {
-		buf.New_Grep_buf(high_scroll, width_scroll, search_strs, index_buf, &new_index_buf)
+		if i == high_size {
+			index_buf[0] = Keys{
+				index:      i,
+				uniq_num:   0,
+				grep_range: nil,
+				cut_range:  nil,
+			}
+			index_buf.Draw_Termbox()
+			search_strs.PromptPrint()
+			termbox.Flush()
+		}
 	}
-	log.Printf("##Re_Create_buf##\t%d milisecond\tkey= \"%s\"", time.Since(re_now).Milliseconds(), (*search_strs)[1].str)
-	log.Printf("%p, new=%p", index_buf, new_index_buf)
-	return &new_index_buf
+	index_buf[0] = Keys{i, 0, nil, nil}
+	log.Printf("##Read_File##\t%d milisecond\tkey= \"%s\"", time.Since(now).Milliseconds(), "")
+	return &index_buf
+}
+
+func (index_buf *IndexBuf) Check_key(index_key int) bool {
+	_, ok := (*index_buf)[index_key]
+	if ok == false {
+		return false
+	}
+	return true
 }
 
 func log_init() *os.File {

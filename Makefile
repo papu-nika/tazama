@@ -1,14 +1,14 @@
+GO_FILES = $(shell find . -type f -name '*.go' -print)
 
-NAME = tazama
+BINARIE_NAME = tazama
 
-all : set $(NAME)
+all : set build
 
 set:
 	go mod tidy
 
-$(NAME):
-	go build -o bin/
+build: 
+	go build -o ./bin/ $(GO_FILES)
 
 clean:
-	rm bin/$(NAME)
-
+	rm bin/$(BINARIE_NAME)
