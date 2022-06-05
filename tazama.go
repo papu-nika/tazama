@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/nsf/termbox-go"
 	"golang.org/x/crypto/ssh/terminal"
 )
@@ -62,10 +63,90 @@ func main() {
 	index_buf := read_file(file)
 	file.Close()
 
-	index_buf.Chach_input()
+	cache_PollEvent, callDrawTerm_ch := create_cache_poolEvent()
+
+	index_buf.Chach_input(cache_PollEvent, callDrawTerm_ch)
 }
 
-func (index_buf *IndexBuf) Chach_input() {
+func create_cache_poolEvent() (<-chan termbox.Event, <-chan interface{}) {
+	pollEvent_ch := make(chan termbox.Event, 100)
+	callDrawTerm_ch := make(chan interface{})
+	go func() {
+		for {
+			ev := termbox.PollEvent()
+			switch ev.Key {
+			case termbox.KeyEsc, termbox.KeyCtrlC:
+				termbox.Close()
+				os.Exit(0)
+			case termbox.KeyArrowRight, termbox.KeyArrowLeft, termbox.KeyArrowUp, termbox.KeyArrowDown:
+				key_arrow_procces(ev.Key)
+				callDrawTerm_ch <- make(chan interface{})
+			case termbox.KeySpace, termbox.KeyBackspace2:
+				pollEvent_ch <- ev
+			default:
+				if ev.Ch == 92 {
+					search_strs[0].str += "\\"
+					continue
+				} else {
+					search_strs[0].str += string(ev.Ch)
+				}
+				promptPrint()
+				termbox.Flush()
+				log.Println("default acction")
+				pollEvent_ch <- ev
+			}
+		}
+	}()
+	return pollEvent_ch, callDrawTerm_ch
+}
+
+func promptPrint() {
+	log.Println("Prompt prrint2")
+	var prompt rune = '>'
+	var str string
+
+	for _, v := range search_strs {
+		str = v.str + " " + str
+	}
+	str = str[:len(str)-1]
+	str_rune := []rune(str)
+
+	termbox.SetCell(0, 0, prompt, default_color, default_color)
+	x := 2
+	for i := 0; i < len(str_rune); i++ {
+		termbox.SetCell(x, 0, rune(str_rune[i]), default_color, default_color)
+		x += runewidth.RuneWidth(rune(str_rune[i]))
+	}
+	termbox.SetCell(x, 0, ' ', default_color, termbox.ColorWhite)
+}
+
+func (index_buf *IndexBuf) Chach_input(cache_PollEvent <-chan termbox.Event, callDrawTerm_ch <-chan interface{}) {
+	cache_DrawTerm := func(
+		done <-chan interface{},
+		callDrawTerm_ch <-chan interface{},
+	) <-chan interface{} {
+		done_DrawTerm_ch := make(chan interface{})
+		go func(index_buf *IndexBuf) {
+			defer close(done_DrawTerm_ch)
+			defer log.Println("draw done!!")
+			for {
+				select {
+				case <-callDrawTerm_ch:
+					log.Println("callDrawTerm")
+					index_buf.Draw_Termbox()
+					promptPrint()
+					termbox.Flush()
+				case <-done:
+					return
+				}
+			}
+		}(index_buf)
+		return done_DrawTerm_ch
+	}
+
+	done := make(chan interface{})
+	done_DrawTerm_ch := cache_DrawTerm(done, callDrawTerm_ch)
+
 MAINLOOP:
 	for {
 		index_buf.Draw_Termbox()
@@ -74,23 +155,22 @@ MAINLOOP:
 	BUFFER_RELATED_WITHOUT:
 		for {
 			termbox.Flush()
-			ev := termbox.PollEvent()
+			ev := <-cache_PollEvent
 			switch ev.Type {
 			case termbox.EventKey:
 				switch ev.Key {
-				case termbox.KeyEsc:
-					termbox.Close()
-					os.Exit(0)
-				case termbox.KeyArrowRight, termbox.KeyArrowLeft, termbox.KeyArrowUp, termbox.KeyArrowDown:
-					key_arrow_procces(ev.Key)
-					index_buf.Draw_Termbox()
-					search_strs.PromptPrint()
-					continue BUFFER_RELATED_WITHOUT
+				// case termbox.KeyArrowRight, termbox.KeyArrowLeft, termbox.KeyArrowUp, termbox.KeyArrowDown:
+				// 	key_arrow_procces(ev.Key)
+				// 	index_buf.Draw_Termbox()
+				// 	search_strs.PromptPrint()
+				// 	continue BUFFER_RELATED_WITHOUT
 				case termbox.KeyBackspace2:
 					if len(search_strs) == 1 && search_strs[0].str == "" {
 						continue BUFFER_RELATED_WITHOUT
 					} else if search_strs[0].str == "" {
 						search_strs = (search_strs)[1:]
+						close(done)
+						<-done_DrawTerm_ch
 						return
 					} else {
 						(search_strs)[0].str = search_strs[0].str[:len(search_strs[0].str)-1]
@@ -108,17 +188,27 @@ MAINLOOP:
 						continue BUFFER_RELATED_WITHOUT
 					}
 					search_strs = append(SearchStr{{""}}, search_strs...)
+					promptPrint()
+					termbox.Flush()
 					new_index_buf := index_buf.Re_Create_buf()
-					new_index_buf.Chach_input()
+					log.Println(len(cache_PollEvent))
+					close(done)
+					<-done_DrawTerm_ch
+					log.Println("kokoniitteiruka")
+					new_index_buf.Chach_input(cache_PollEvent, callDrawTerm_ch)
+					log.Println("remake done")
+					done = make(chan interface{})
+					done_DrawTerm_ch = cache_DrawTerm(done, callDrawTerm_ch)
 					continue MAINLOOP
 				default:
-					if ev.Ch == 92 {
-						search_strs[0].str += "\\"
-						continue BUFFER_RELATED_WITHOUT
-					} else {
-						search_strs[0].str += string(ev.Ch)
-					}
-					search_strs.PromptPrint()
+					// if ev.Ch == 92 {
+					// 	search_strs[0].str += "\\"
+					// 	continue BUFFER_RELATED_WITHOUT
+					// } else {
+					// 	search_strs[0].str += string(ev.Ch)
+					// }
+
+					// search_strs.PromptPrint()
 					continue BUFFER_RELATED_WITHOUT
 				}
 			}

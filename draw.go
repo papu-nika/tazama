@@ -9,7 +9,6 @@ import (
 )
 
 func (index_buf *IndexBuf) Draw_Termbox() {
-	//now := time.Now()
 	termbox.Clear(default_color, default_color)
 
 	width_size, high_size := termbox.Size()
@@ -48,8 +47,6 @@ func (index_buf *IndexBuf) Draw_Termbox() {
 		index_key++
 	}
 	termbox.Flush()
-	//log.Println(term_line_nb)
-	//log.Printf("##Draw_Termbox##\t%d milisecond\tkey= \"%s\"", time.Since(now).Milliseconds(), search_strs)
 }
 
 func (index_buf *IndexBuf) PrintLine(y, x int, str string, index_key int) {
@@ -88,6 +85,7 @@ func (index_buf *IndexBuf) PrintLine(y, x int, str string, index_key int) {
 }
 
 func (search_strs *SearchStr) PromptPrint() {
+	log.Println("Prompt prrint")
 	var prompt rune = '>'
 	var str string
 

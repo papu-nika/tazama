@@ -33,7 +33,7 @@ func (index_buf *IndexBuf) New_Uniq_buf(new_index_buf *IndexBuf) {
 				index:      (*index_buf)[index_key].index,
 				uniq_num:   match_times,
 				grep_range: nil,
-				cut_range:  []int{0, len(file_buf[(*index_buf)[index_key].index]) - 2},
+				cut_range:  []int{0, len(file_buf[(*index_buf)[index_key].index])},
 			}
 			new_index_key++
 			index_key++

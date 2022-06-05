@@ -30,17 +30,13 @@ func (index_buf *IndexBuf) New_Srot_buf(new_index_buf *IndexBuf) {
 
 func (new_index_buf *IndexBuf) QuicSort(start, last int) {
 	var qart int
-	log.Println("###", start, last, " = ", last-start)
-	if last-start < 15 {
+	if last-start < 20 {
 		new_index_buf.InsertSort(start, last)
 	} else if start < last {
 		qart = new_index_buf.Quicsort_part_left_right(start, last)
-		go func(s, l int) {
-			new_index_buf.QuicSort(s, l)
-		}(start, qart-1)
-		go func(s, l int) {
-			new_index_buf.QuicSort(s, l)
-		}(qart+1, last)
+		new_index_buf.QuicSort(start, qart-1)
+		new_index_buf.QuicSort(qart+1, last)
+
 	}
 	return
 }
@@ -65,7 +61,7 @@ func (new_index_buf *IndexBuf) InsertSort(start, last int) {
 			if file_buf[(*new_index_buf)[start-i-1].index] > file_buf[(*new_index_buf)[start-i].index] {
 				new_index_buf.Swap_index_buf(start-i-1, start-i)
 			} else {
-				break
+				continue
 			}
 		}
 	}
