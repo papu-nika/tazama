@@ -65,7 +65,9 @@ func main() {
 
 	cache_PollEvent, callDrawTerm_ch := create_cache_poolEvent()
 
-	index_buf.Chach_input(cache_PollEvent, callDrawTerm_ch)
+	var index_bufs []*IndexBuf
+	index_bufs = append(index_bufs, index_buf)
+	Chach_input(index_bufs, cache_PollEvent, callDrawTerm_ch)
 }
 
 func create_cache_poolEvent() (<-chan termbox.Event, <-chan interface{}) {
@@ -120,36 +122,36 @@ func promptPrint() {
 	termbox.SetCell(x, 0, ' ', default_color, termbox.ColorWhite)
 }
 
-func (index_buf *IndexBuf) Chach_input(cache_PollEvent <-chan termbox.Event, callDrawTerm_ch <-chan interface{}) {
-	cache_DrawTerm := func(
-		done <-chan interface{},
-		callDrawTerm_ch <-chan interface{},
-	) <-chan interface{} {
-		done_DrawTerm_ch := make(chan interface{})
-		go func(index_buf *IndexBuf) {
-			defer close(done_DrawTerm_ch)
-			defer log.Println("draw done!!")
-			for {
-				select {
-				case <-callDrawTerm_ch:
-					log.Println("callDrawTerm")
-					index_buf.Draw_Termbox()
-					promptPrint()
-					termbox.Flush()
-				case <-done:
-					return
-				}
-			}
-		}(index_buf)
-		return done_DrawTerm_ch
-	}
+func Chach_input(index_bufs []*IndexBuf, cache_PollEvent <-chan termbox.Event, callDrawTerm_ch <-chan interface{}) {
+	// cache_DrawTerm := func(
+	// 	done <-chan interface{},
+	// 	callDrawTerm_ch <-chan interface{},
+	// ) <-chan interface{} {
+	// 	done_DrawTerm_ch := make(chan interface{})
+	// 	go func(index_buf *IndexBuf) {
+	// 		defer close(done_DrawTerm_ch)
+	// 		defer log.Println("draw done!!")
+	// 		for {
+	// 			select {
+	// 			case <-callDrawTerm_ch:
+	// 				log.Println("callDrawTerm")
+	// 				index_buf.Draw_Termbox()
+	// 				promptPrint()
+	// 				termbox.Flush()
+	// 			case <-done:
+	// 				return
+	// 			}
+	// 		}
+	// 	}(index_bufs[0])
+	// 	return done_DrawTerm_ch
+	// }
 
-	done := make(chan interface{})
-	done_DrawTerm_ch := cache_DrawTerm(done, callDrawTerm_ch)
+	// done := make(chan interface{})
+	// done_DrawTerm_ch := cache_DrawTerm(done, callDrawTerm_ch)
 
 MAINLOOP:
 	for {
-		index_buf.Draw_Termbox()
+		index_bufs[len(index_bufs)-1].Draw_Termbox()
 		search_strs.PromptPrint()
 		termbox.Flush()
 	BUFFER_RELATED_WITHOUT:
@@ -169,9 +171,8 @@ MAINLOOP:
 						continue BUFFER_RELATED_WITHOUT
 					} else if search_strs[0].str == "" {
 						search_strs = (search_strs)[1:]
-						close(done)
-						<-done_DrawTerm_ch
-						return
+						index_bufs = index_bufs[:len(index_bufs)-1]
+						continue MAINLOOP
 					} else {
 						(search_strs)[0].str = search_strs[0].str[:len(search_strs[0].str)-1]
 						continue MAINLOOP
@@ -190,15 +191,9 @@ MAINLOOP:
 					search_strs = append(SearchStr{{""}}, search_strs...)
 					promptPrint()
 					termbox.Flush()
-					new_index_buf := index_buf.Re_Create_buf()
+					new_index_buf := index_bufs[len(index_bufs)-1].Re_Create_buf()
+					index_bufs = append(index_bufs, new_index_buf)
 					log.Println(len(cache_PollEvent))
-					close(done)
-					<-done_DrawTerm_ch
-					log.Println("kokoniitteiruka")
-					new_index_buf.Chach_input(cache_PollEvent, callDrawTerm_ch)
-					log.Println("remake done")
-					done = make(chan interface{})
-					done_DrawTerm_ch = cache_DrawTerm(done, callDrawTerm_ch)
 					continue MAINLOOP
 				default:
 					// if ev.Ch == 92 {
