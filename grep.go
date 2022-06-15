@@ -9,7 +9,7 @@ import (
 	"github.com/nsf/termbox-go"
 )
 
-func (index_buf *IndexBuf) New_Grep_buf(new_index_buf *IndexBuf) {
+func (index_buf *IndexBuf) New_Grep_buf(new_index_buf *IndexBuf, search_str string) {
 	now := time.Now()
 	var new_index_key int = 1
 	var print_line_nb int = 1
@@ -20,9 +20,9 @@ func (index_buf *IndexBuf) New_Grep_buf(new_index_buf *IndexBuf) {
 	last_index_key := (*index_buf)[0].index
 
 	var search_func func(str string) []int
-	find, err := regexp.CompilePOSIX(search_strs[1].str)
+	find, err := regexp.CompilePOSIX(search_str)
 	var is_meta_ch bool = false
-	for _, v := range search_strs[1].str {
+	for _, v := range search_str {
 		if !('a' < v && v < 'z' || 'Z' < v && v < 'Z' || '0' < v && v < '9') {
 			is_meta_ch = true
 		}
@@ -33,11 +33,11 @@ func (index_buf *IndexBuf) New_Grep_buf(new_index_buf *IndexBuf) {
 		}
 	} else {
 		search_func = func(str string) []int {
-			is_start_index := strings.Index(str, search_strs[1].str)
+			is_start_index := strings.Index(str, search_str)
 			if is_start_index == -1 {
 				return nil
 			} else {
-				return []int{is_start_index, is_start_index + len(search_strs[1].str)}
+				return []int{is_start_index, is_start_index + len(search_str)}
 			}
 		}
 	}
@@ -59,7 +59,6 @@ func (index_buf *IndexBuf) New_Grep_buf(new_index_buf *IndexBuf) {
 					cut_range:  nil,
 				}
 				index_buf.Draw_Termbox()
-				search_strs.PromptPrint()
 				termbox.Flush()
 			}
 			(*new_index_buf)[new_index_key] = Keys{

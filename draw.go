@@ -8,10 +8,24 @@ import (
 	"github.com/nsf/termbox-go"
 )
 
-func (index_buf *IndexBuf) Draw_Termbox() {
-	termbox.Clear(default_color, default_color)
+func textAreaClear(fgColor termbox.Attribute, bgColor termbox.Attribute) {
+	widthSize, highSize := termbox.Size()
+	var brank rune = ' '
 
-	width_size, high_size := termbox.Size()
+	for high := 1; high < highSize; high++ {
+		for width := 0; width < widthSize; width++ {
+			termbox.SetCell(width, high, brank, fgColor, bgColor)
+		}
+	}
+
+}
+
+func (index_buf *IndexBuf) Draw_Termbox() {
+	var search_strs []string = []string{"tets"}
+	//termbox.Clear(default_color, default_color)
+	textAreaClear(default_color, default_color)
+
+	widthSize, highSize := termbox.Size()
 	var term_line_nb int = 1
 	var index_key int = scroll.high + 1
 
@@ -21,27 +35,27 @@ func (index_buf *IndexBuf) Draw_Termbox() {
 	}
 	last_index_key := tmp.index
 
-	for term_line_nb < high_size-1 && index_key != last_index_key {
+	for term_line_nb < highSize-1 && index_key != last_index_key {
 		if !index_buf.Check_key(index_key) {
 			return
 		}
 
 		if len(search_strs) > 1 {
-			if search_strs[1].str == "uniq-c" {
+			if search_strs[1] == "uniq-c" {
 				num := strconv.Itoa(int((*index_buf)[index_key].uniq_num))
 				var x int
 				for x, ch := range num {
 					termbox.SetCell(x, term_line_nb, rune(ch), termbox.ColorLightMagenta, default_color)
 					x += runewidth.RuneWidth(rune(ch))
 				}
-				index_buf.PrintLine(term_line_nb, x+2, file_buf[(*index_buf)[index_key].index], index_key)
+				index_buf.PrintLine(term_line_nb, x+2, widthSize, file_buf[(*index_buf)[index_key].index], index_key)
 			} else {
 				str := file_buf[(*index_buf)[index_key].index]
-				index_buf.PrintLine(term_line_nb, 0, str[scroll.width*width_size:], index_key)
+				index_buf.PrintLine(term_line_nb, 0, widthSize, str[scroll.width*widthSize:], index_key)
 			}
 		} else {
 			str := file_buf[(*index_buf)[index_key].index]
-			index_buf.PrintLine(term_line_nb, 0, str[scroll.width*width_size:], index_key)
+			index_buf.PrintLine(term_line_nb, 0, widthSize, str[scroll.width*widthSize:], index_key)
 		}
 		term_line_nb++
 		index_key++
@@ -49,7 +63,7 @@ func (index_buf *IndexBuf) Draw_Termbox() {
 	termbox.Flush()
 }
 
-func (index_buf *IndexBuf) PrintLine(y, x int, str string, index_key int) {
+func (index_buf *IndexBuf) PrintLine(y, x, widthSize int, str string, index_key int) {
 	color_lenge := (*index_buf)[index_key].grep_range
 	print_renge := (*index_buf)[index_key].cut_range
 	ch_color := default_color
@@ -84,12 +98,12 @@ func (index_buf *IndexBuf) PrintLine(y, x int, str string, index_key int) {
 	}
 }
 
-func (search_strs *SearchStr) PromptPrint() {
-	log.Println("Prompt prrint")
+func (promptStrs *PromptStrs) PromptPrint() {
+	// log.Println("Prompt prrint")
 	var prompt rune = '>'
 	var str string
 
-	for _, v := range *search_strs {
+	for _, v := range *promptStrs {
 		str = v.str + " " + str
 	}
 	str = str[:len(str)-1]
@@ -102,6 +116,12 @@ func (search_strs *SearchStr) PromptPrint() {
 		x += runewidth.RuneWidth(rune(str_rune[i]))
 	}
 	termbox.SetCell(x, 0, ' ', default_color, termbox.ColorWhite)
+
+	widthSize, _ := termbox.Size()
+	for x++; x < widthSize; x++ {
+		termbox.SetCell(x, 0, ' ', default_color, default_color)
+	}
+	termbox.Flush()
 }
 
 func error_print(error_message string) {

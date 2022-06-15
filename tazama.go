@@ -7,9 +7,9 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"sync"
 	"time"
 
-	"github.com/mattn/go-runewidth"
 	"github.com/nsf/termbox-go"
 	"golang.org/x/crypto/ssh/terminal"
 )
@@ -40,7 +40,7 @@ type Scroll struct {
 	width int
 }
 
-type SearchStr []struct {
+type PromptStrs []struct {
 	str string
 }
 
@@ -48,9 +48,32 @@ type Options struct {
 	op_v bool
 }
 
+type Wordprocces struct {
+	word string
+}
+
 var file_buf FileBuf = map[int]string{}
 var scroll Scroll = Scroll{0, 0}
-var search_strs SearchStr = SearchStr{{}}
+
+type CallDrawCh struct {
+	draw <-chan interface{}
+}
+
+type CallEventCh struct {
+	event <-chan termbox.Event
+}
+
+type CallPoolCh struct {
+	word   <-chan string
+	delete <-chan interface{}
+}
+
+type CallTazamaCh struct {
+	do      <-chan string
+	done    chan<- interface{}
+	delete  <-chan interface{}
+	deleted chan<- interface{}
+}
 
 func main() {
 	log_file := log_init()
@@ -63,16 +86,23 @@ func main() {
 	index_buf := read_file(file)
 	file.Close()
 
-	cache_PollEvent, callDrawTerm_ch := create_cache_poolEvent()
+	callEventCh, _ := cacheEvent()
+	callPoolCh := poolEvent(callEventCh)
+	callTazamaCh := controlEvent(callPoolCh)
 
 	var index_bufs []*IndexBuf
 	index_bufs = append(index_bufs, index_buf)
-	Chach_input(index_bufs, cache_PollEvent, callDrawTerm_ch)
+	doTazama(index_bufs, callTazamaCh)
+
 }
 
-func create_cache_poolEvent() (<-chan termbox.Event, <-chan interface{}) {
-	pollEvent_ch := make(chan termbox.Event, 100)
-	callDrawTerm_ch := make(chan interface{})
+// Ecs, Ctrl+C, KeyArrowはここで処理して、他のキーは流す。
+func cacheEvent() (CallEventCh, CallDrawCh) {
+	callEventCh := make(chan termbox.Event, 100)
+	callDrawCh := make(chan interface{})
+	var callEventCh_re CallEventCh = CallEventCh{event: callEventCh}
+	var callDrawCh_re CallDrawCh = CallDrawCh{draw: callDrawCh}
+
 	go func() {
 		for {
 			ev := termbox.PollEvent()
@@ -82,155 +112,191 @@ func create_cache_poolEvent() (<-chan termbox.Event, <-chan interface{}) {
 				os.Exit(0)
 			case termbox.KeyArrowRight, termbox.KeyArrowLeft, termbox.KeyArrowUp, termbox.KeyArrowDown:
 				key_arrow_procces(ev.Key)
-				callDrawTerm_ch <- make(chan interface{})
-			case termbox.KeySpace, termbox.KeyBackspace2:
-				pollEvent_ch <- ev
+				callDrawCh <- make(chan interface{})
 			default:
-				if ev.Ch == 92 {
-					search_strs[0].str += "\\"
-					continue
-				} else {
-					search_strs[0].str += string(ev.Ch)
-				}
-				promptPrint()
-				termbox.Flush()
-				log.Println("default acction")
-				pollEvent_ch <- ev
+				callEventCh <- ev
 			}
 		}
 	}()
-	return pollEvent_ch, callDrawTerm_ch
+	return callEventCh_re, callDrawCh_re
 }
 
-func promptPrint() {
-	log.Println("Prompt prrint2")
-	var prompt rune = '>'
-	var str string
-
-	for _, v := range search_strs {
-		str = v.str + " " + str
+func poolEvent(callEventCh CallEventCh) CallPoolCh {
+	callWordCh := make(chan string)
+	callDeleteCh := make(chan interface{})
+	var callPoolCh_re CallPoolCh = CallPoolCh{
+		word:   callWordCh,
+		delete: callDeleteCh,
 	}
-	str = str[:len(str)-1]
-	str_rune := []rune(str)
 
-	termbox.SetCell(0, 0, prompt, default_color, default_color)
-	x := 2
-	for i := 0; i < len(str_rune); i++ {
-		termbox.SetCell(x, 0, rune(str_rune[i]), default_color, default_color)
-		x += runewidth.RuneWidth(rune(str_rune[i]))
-	}
-	termbox.SetCell(x, 0, ' ', default_color, termbox.ColorWhite)
-}
-
-func Chach_input(index_bufs []*IndexBuf, cache_PollEvent <-chan termbox.Event, callDrawTerm_ch <-chan interface{}) {
-	// cache_DrawTerm := func(
-	// 	done <-chan interface{},
-	// 	callDrawTerm_ch <-chan interface{},
-	// ) <-chan interface{} {
-	// 	done_DrawTerm_ch := make(chan interface{})
-	// 	go func(index_buf *IndexBuf) {
-	// 		defer close(done_DrawTerm_ch)
-	// 		defer log.Println("draw done!!")
-	// 		for {
-	// 			select {
-	// 			case <-callDrawTerm_ch:
-	// 				log.Println("callDrawTerm")
-	// 				index_buf.Draw_Termbox()
-	// 				promptPrint()
-	// 				termbox.Flush()
-	// 			case <-done:
-	// 				return
-	// 			}
-	// 		}
-	// 	}(index_bufs[0])
-	// 	return done_DrawTerm_ch
-	// }
-
-	// done := make(chan interface{})
-	// done_DrawTerm_ch := cache_DrawTerm(done, callDrawTerm_ch)
-
-MAINLOOP:
-	for {
-		index_bufs[len(index_bufs)-1].Draw_Termbox()
-		search_strs.PromptPrint()
-		termbox.Flush()
-	BUFFER_RELATED_WITHOUT:
+	var promptStrs PromptStrs = PromptStrs{{}}
+	go func(callEventCh CallEventCh, callWordCh chan string, callDeleteCh chan interface{}) {
 		for {
-			termbox.Flush()
-			ev := <-cache_PollEvent
+			promptStrs.PromptPrint()
+			ev := <-callEventCh.event
 			switch ev.Type {
 			case termbox.EventKey:
 				switch ev.Key {
-				// case termbox.KeyArrowRight, termbox.KeyArrowLeft, termbox.KeyArrowUp, termbox.KeyArrowDown:
-				// 	key_arrow_procces(ev.Key)
-				// 	index_buf.Draw_Termbox()
-				// 	search_strs.PromptPrint()
-				// 	continue BUFFER_RELATED_WITHOUT
 				case termbox.KeyBackspace2:
-					if len(search_strs) == 1 && search_strs[0].str == "" {
-						continue BUFFER_RELATED_WITHOUT
-					} else if search_strs[0].str == "" {
-						search_strs = (search_strs)[1:]
-						index_bufs = index_bufs[:len(index_bufs)-1]
-						continue MAINLOOP
+					if len(promptStrs) == 1 && promptStrs[0].str == "" {
+						continue
+					} else if promptStrs[0].str == "" {
+						callDeleteCh <- (promptStrs)[1].str
+						promptStrs = (promptStrs)[1:]
+						continue
 					} else {
-						(search_strs)[0].str = search_strs[0].str[:len(search_strs[0].str)-1]
-						continue MAINLOOP
+						(promptStrs)[0].str = promptStrs[0].str[:len(promptStrs[0].str)-1]
+						continue
 					}
 				case termbox.KeySpace:
-					if search_strs[0].str == "" {
-						continue BUFFER_RELATED_WITHOUT
-					} else if search_strs[0].str[len(search_strs[0].str)-1] == '\\' {
-						search_strs[0].str += " "
-						continue BUFFER_RELATED_WITHOUT
-					}
-					if error_message := is_ok_regex(search_strs[0].str); error_message != "" {
+					if promptStrs[0].str == "" {
+						continue
+					} else if promptStrs[0].str[len(promptStrs[0].str)-1] == '\\' {
+						promptStrs[0].str += " "
+						continue
+					} else if error_message := is_ok_regex(promptStrs[0].str); error_message != "" {
 						error_print(error_message)
-						continue BUFFER_RELATED_WITHOUT
+						continue
+					} else {
+						promptStrs = append(PromptStrs{{""}}, promptStrs...)
+						callWordCh <- promptStrs[1].str
+						continue
 					}
-					search_strs = append(SearchStr{{""}}, search_strs...)
-					promptPrint()
-					termbox.Flush()
-					new_index_buf := index_bufs[len(index_bufs)-1].Re_Create_buf()
-					index_bufs = append(index_bufs, new_index_buf)
-					log.Println(len(cache_PollEvent))
-					continue MAINLOOP
 				default:
-					// if ev.Ch == 92 {
-					// 	search_strs[0].str += "\\"
-					// 	continue BUFFER_RELATED_WITHOUT
-					// } else {
-					// 	search_strs[0].str += string(ev.Ch)
-					// }
-
-					// search_strs.PromptPrint()
-					continue BUFFER_RELATED_WITHOUT
+					if ev.Ch == 92 {
+						promptStrs[0].str += "\\"
+						continue
+					} else {
+						promptStrs[0].str += string(ev.Ch)
+					}
 				}
 			}
+		}
+	}(callEventCh, callWordCh, callDeleteCh)
+	return callPoolCh_re
+}
+
+func controlEvent(callWordCh CallPoolCh) CallTazamaCh {
+	doTazamaCh := make(chan string)
+	doneTazamaCh := make(chan interface{})
+	deleteTamazaCh := make(chan interface{})
+	deletedTamazaCh := make(chan interface{})
+	var callTazamaCh CallTazamaCh = CallTazamaCh{
+		do:      doTazamaCh,
+		done:    doneTazamaCh,
+		delete:  deleteTamazaCh,
+		deleted: deletedTamazaCh,
+	}
+
+	doPoolCh := callWordCh.word
+	deletePoolCh := callWordCh.delete
+
+	var wordbuf []string = []string{}
+	var lock sync.Mutex
+
+	// Word Relay
+	go func(wordbuf *[]string) {
+		wordRelay := func() {
+			w := <-doPoolCh
+			lock.Lock()
+			defer lock.Unlock()
+			*wordbuf = append(*wordbuf, w)
+		}
+		for {
+			wordRelay()
+		}
+	}(&wordbuf)
+
+	// Detele Relay
+	go func(wordbuf *[]string) {
+		deleteRelay := func() {
+			w := <-deletePoolCh
+			log.Println(w)
+			lock.Lock()
+			defer lock.Unlock()
+			if len(*wordbuf) > 0 {
+				*wordbuf = (*wordbuf)[:len(*wordbuf)-1]
+			} else if len(*wordbuf) == 0 {
+				deleteTamazaCh <- make(chan interface{})
+			}
+			<-deletedTamazaCh
+		}
+		for {
+			deleteRelay()
+		}
+	}(&wordbuf)
+
+	sendTazamaWord := func(wordbuf *[]string) {
+		lock.Lock()
+		defer lock.Unlock()
+		doTazamaCh <- (*wordbuf)[len(*wordbuf)-1]
+		*wordbuf = (*wordbuf)[:len(*wordbuf)-1]
+		<-doneTazamaCh
+	}
+
+	go func(wordbuf *[]string) {
+		for {
+			if len(*wordbuf) > 0 {
+				sendTazamaWord(wordbuf)
+			}
+		}
+	}(&wordbuf)
+	return callTazamaCh
+}
+
+func doTazama(index_bufs []*IndexBuf, callTazamaCh CallTazamaCh) {
+	doCh := callTazamaCh.do
+	doneCh := callTazamaCh.done
+	deleteCh := callTazamaCh.delete
+	deletedCh := callTazamaCh.deleted
+
+	getNewIndex := func(word string, new_index_buf *IndexBuf) {
+		index_bufs[len(index_bufs)-1].Re_Create_buf(word, new_index_buf)
+	}
+
+	for {
+		if len(index_bufs) == 0 {
+			log.Println("error: index_buf is no indexs")
+			os.Exit(1)
+		}
+		index_bufs[len(index_bufs)-1].Draw_Termbox()
+		termbox.Flush()
+
+		var wg sync.WaitGroup
+
+		select {
+		case word := <-doCh:
+			var new_index_buf IndexBuf = IndexBuf{}
+			wg.Add(1)
+			go func(deleteCh <-chan interface{}, new_index_buf *IndexBuf, doneCh chan<- interface{}, word string) {
+				defer func() {
+					wg.Done()
+					doneCh <- make(chan interface{})
+				}()
+				getNewIndex(word, new_index_buf)
+			}(deleteCh, &new_index_buf, doneCh, word)
+			wg.Wait()
+			index_bufs = append(index_bufs, &new_index_buf)
+		case <-deleteCh:
+			index_bufs = index_bufs[:len(index_bufs)-1]
+			deletedCh <- make(chan interface{})
 		}
 	}
 }
 
-func (index_buf *IndexBuf) Re_Create_buf() *IndexBuf {
+func (index_buf *IndexBuf) Re_Create_buf(str string, new_index_buf *IndexBuf) {
 	re_now := time.Now()
-	var new_index_buf IndexBuf = IndexBuf{}
 
-	if search_strs[1].str == "sort" {
-		index_buf.New_Srot_buf(&new_index_buf)
-
-	} else if search_strs[1].str == "uniq" || search_strs[1].str == "uniq-c" {
-		index_buf.New_Uniq_buf(&new_index_buf)
-	} else if search_strs[1].str == "cut" {
-		index_buf.New_Cut_buf(&new_index_buf, 3)
+	if str == "sort" {
+		index_buf.New_Srot_buf(new_index_buf)
+	} else if str == "uniq" || str == "uniq-c" {
+		index_buf.New_Uniq_buf(new_index_buf)
+	} else if str == "cut" {
+		index_buf.New_Cut_buf(new_index_buf, 3)
 	} else {
-		index_buf.New_Grep_buf(&new_index_buf)
+		index_buf.New_Grep_buf(new_index_buf, str)
 	}
-	log.Printf("##Re_Create_buf##\t%d milisecond\tkey= \"%s\"", time.Since(re_now).Milliseconds(), search_strs[1].str)
-	//log.Printf("%p, new=%p", index_buf, &new_index_buf)
-	// for key, value := range new_index_buf {
-	// 	log.Printf("key %d = value %d", key, value.cut_range)
-	// }
-	return &new_index_buf
+	log.Printf("##Re_Create_buf##\t%d milisecond\tkey= \"%s\"", time.Since(re_now).Milliseconds(), str)
 }
 
 func is_ok_regex(str string) string {
@@ -319,7 +385,6 @@ func read_file(f *os.File) *IndexBuf {
 				cut_range:  nil,
 			}
 			index_buf.Draw_Termbox()
-			search_strs.PromptPrint()
 			termbox.Flush()
 		}
 	}
